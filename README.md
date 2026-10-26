@@ -15,6 +15,10 @@ AutoCalendar è uno script avanzato per Google Apps Script che automatizza compl
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | 
 | Intestazione | Data | Ora | Luogo | Squadra Casa | Squadra Ospite | Categoria | Nr. Gara | Cod. Apertura | Cod. Firma | 1° Arbitro | 2° Arbitro | 
 
+4. **Imposta le impostazioni locali su Italia**: `File` > `Impostazioni` > `Impostazioni locali` = **Italia**. Le date vengono scritte nel formato `GG/MM/AAAA`: con un'altra localizzazione il foglio le interpreta al contrario (08/09 diventa 9 agosto) e il calendario riceve giorni sbagliati.
+
+> Dalla colonna **L** in poi il foglio è libero: lo script non la tocca, puoi usarla per le tue note.
+
 ---
 
 ## 🚀 Installazione Rapida
@@ -67,6 +71,25 @@ Per un'estrazione perfetta che distingua squadre da indirizzi o dirigenti, lo sc
 Riconosce automaticamente:
 - Designazioni di **Fipav Web Manager (TBT / TieBreakTech)**
 - Designazioni e Spostamenti Gare di **FipavOnline**
+- Designazioni dei **Comitati Territoriali FIPAV** (gestionale *SOL arbitri*, es. Milano Monza Lecco), con oggetto tipo `Gara n. 77 del 23/01/2026`
+- Designazioni **nazionali del CED FIPAV** (`tessonline@federvolley.it`, serie A e B), con oggetto `Designazione`
+
+Le mail **inoltrate** da un'altra casella vengono lette regolarmente: marcatori di citazione, accenti e apostrofi codificati (`&#39;`, `=C3=A8`) e i link di Google Maps che Gmail infila nell'indirizzo vengono ripuliti prima dell'analisi. Nelle mail TBT inoltrate l'orario della gara non viene più confuso con l'ora di invio del messaggio.
+
+Le designazioni dei Comitati Territoriali e quelle nazionali non contengono i codici referto: nelle colonne **H** e **I** viene scritto `-` e nell'evento del calendario quelle righe non compaiono.
+
+### 🎽 Ruoli diversi dall'arbitraggio
+Se la designazione è per un **ruolo non arbitrale** (*Osservatore*, *Delegato*, *Addetto/Assistente VideoCheck*, *Segnapunti*, *Giudice di linea*), le colonne **J** e **K** restano vuote e il ruolo viene accodato alla **Categoria**:
+
+```
+Serie A3 /M (AssistenteVideoCheck)
+Coppa Maschile OTTAVI (Delegato)
+1^ Divisione - Femminile (Osservatore)
+```
+
+Così il ruolo si legge nell'evento del calendario senza farti comparire come arbitro di una gara che non arbitri. Quando invece la mail elenca gli arbitri (es. le designazioni TBT), i loro nomi finiscono regolarmente in **J** e **K**.
+
+> I numeri gara con lo zero iniziale (es. `01018` delle serie nazionali) vengono scritti come testo, quindi lo zero non va perso: è la chiave anti-duplicati, non toccare il formato della colonna **G**.
 
 ### 🔄 Gestione Automatica Variazioni
 Se arriva una mail di variazione:
@@ -142,6 +165,7 @@ Puoi segnalare bug o suggerire migliorie tramite la sezione **Issues** su GitHub
 
 * **TBT, FWM, Fipav Web Manager** sono copyright di **TieBreakTech**. 
 * **FipavOnline** è copyright di **Manufacturing Point Software**.
+* **SOL / SOL arbitri** e i sistemi del **CED FIPAV** sono copyright della **Federazione Italiana Pallavolo (FIPAV)**.
 ---
 
 **© 2026 KekkoTech Softwares - RefPublic Team** *Sviluppato da Matteo Checcacci*
