@@ -11,13 +11,15 @@ AutoCalendar è uno script avanzato per Google Apps Script che automatizza compl
 3. **Prepara le intestazioni**: Inserisci questi titoli nella **Riga 1**:
 
 
-| Colonna | **A** | **B** | **C** | **D** | **E** | **F** | **G** | **H** | **I** | **J** | **K** |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | 
-| Intestazione | Data | Ora | Luogo | Squadra Casa | Squadra Ospite | Categoria | Nr. Gara | Cod. Apertura | Cod. Firma | 1° Arbitro | 2° Arbitro | 
+| Colonna | **A** | **B** | **C** | **D** | **E** | **F** | **G** | **H** | **I** | **J** | **K** | **L** |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Intestazione | Data | Ora | Luogo | Squadra Casa | Squadra Ospite | Categoria | Nr. Gara | Cod. Apertura | Cod. Firma | 1° Arbitro | 2° Arbitro | Ruolo |
+
+> L'intestazione **Ruolo** (colonna L) viene aggiunta automaticamente alla prima sincronizzazione, quindi chi usa già AutoCalendar non deve fare nulla a mano.
 
 4. **Imposta le impostazioni locali su Italia**: `File` > `Impostazioni` > `Impostazioni locali` = **Italia**. Le date vengono scritte nel formato `GG/MM/AAAA`: con un'altra localizzazione il foglio le interpreta al contrario (08/09 diventa 9 agosto) e il calendario riceve giorni sbagliati.
 
-> Dalla colonna **L** in poi il foglio è libero: lo script non la tocca, puoi usarla per le tue note.
+> Dalla colonna **M** in poi il foglio è libero: lo script non la tocca, puoi usarla per le tue note.
 
 ---
 
@@ -74,20 +76,24 @@ Riconosce automaticamente:
 - Designazioni dei **Comitati Territoriali FIPAV** (gestionale *SOL arbitri*, es. Milano Monza Lecco), con oggetto tipo `Gara n. 77 del 23/01/2026`
 - Designazioni **nazionali del CED FIPAV** (`tessonline@federvolley.it`, serie A e B), con oggetto `Designazione`
 
-Le mail **inoltrate** da un'altra casella vengono lette regolarmente: marcatori di citazione, accenti e apostrofi codificati (`&#39;`, `=C3=A8`) e i link di Google Maps che Gmail infila nell'indirizzo vengono ripuliti prima dell'analisi. Nelle mail TBT inoltrate l'orario della gara non viene più confuso con l'ora di invio del messaggio.
+Accenti e apostrofi codificati (`&#39;`, `=C3=A8`), il CSS delle mail HTML e i link non arrivano mai nei dati: vengono rimossi prima dell'analisi. Se da una mail non si ricavano **data, ora e squadre** la riga non viene scritta affatto e il messaggio resta da leggere, così te ne accorgi.
 
 Le designazioni dei Comitati Territoriali e quelle nazionali non contengono i codici referto: nelle colonne **H** e **I** viene scritto `-` e nell'evento del calendario quelle righe non compaiono.
 
-### 🎽 Ruoli diversi dall'arbitraggio
-Se la designazione è per un **ruolo non arbitrale** (*Osservatore*, *Delegato*, *Addetto/Assistente VideoCheck*, *Segnapunti*, *Giudice di linea*), le colonne **J** e **K** restano vuote e il ruolo viene accodato alla **Categoria**:
+### 🚫 Le mail inoltrate vengono ignorate
+Nel foglio finiscono **solo le designazioni arrivate direttamente** dal sistema federale alla tua casella. Una designazione girata da un collega (oggetto `Fwd:` / `I:`, o con il marcatore del messaggio inoltrato nel corpo) viene scartata: non è tua e non deve finire nel tuo calendario.
 
-```
-Serie A3 /M (AssistenteVideoCheck)
-Coppa Maschile OTTAVI (Delegato)
-1^ Divisione - Femminile (Osservatore)
-```
+*(Se ti serve comunque in calendario, scrivi la riga a mano nel foglio: la sincronizzazione Excel → Calendario la prende da lì.)*
 
-Così il ruolo si legge nell'evento del calendario senza farti comparire come arbitro di una gara che non arbitri. Quando invece la mail elenca gli arbitri (es. le designazioni TBT), i loro nomi finiscono regolarmente in **J** e **K**.
+### 🎽 Colonna L — Ruolo
+La colonna **Ruolo** dice cosa fai **tu** in quella gara, e compare nell'evento del calendario:
+
+| Ruolo in colonna L | Da dove arriva |
+| --- | --- |
+| `1° Arbitro` / `2° Arbitro` | dichiarato dalla mail, oppure dedotto confrontando le colonne J/K con il tuo nome |
+| `Osservatore`, `Delegato`, `Addetto VideoCheck`, `AssistenteVideoCheck`, `Segnapunti` | dichiarato dalla mail |
+
+Le colonne **J** e **K** restano quelle degli arbitri della gara: vengono compilate quando la mail li elenca (TBT, designazioni nazionali). Le mail dei Comitati Territoriali dicono solo il tuo ruolo e non nominano il collega, quindi lì J e K restano vuote e l'informazione sta tutta in **L**.
 
 > I numeri gara con lo zero iniziale (es. `01018` delle serie nazionali) vengono scritti come testo, quindi lo zero non va perso: è la chiave anti-duplicati, non toccare il formato della colonna **G**.
 
