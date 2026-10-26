@@ -1,9 +1,9 @@
 const CALENDAR_NAME = "Partite - AC";
 const MAJOR_VERSION = 0;
 const MINOR_VERSION = 8;
-const PATCH_VERSION = 2;
+const PATCH_VERSION = 3;
 const CURRENT_VERSION = `${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}`;
-const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-and-FipavOnline";
+const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-FipavOnline-SOL-and-CED-Federvolley";
 
 // Filtro Gmail condiviso da sincronizzazione automatica e manuale.
 const MAIL_FILTER = [
@@ -16,6 +16,7 @@ const MAIL_FILTER = [
 ].join(" OR ");
 
 const WHATS_NEW_TEXT = `
+  <p><b>Versione 0.8.2</b></p>
   <ul>
     <li><b>Bot Telegram (opzionale):</b> AutoCalendar può scriverti su Telegram. Le notifiche restano attive anche senza il bot, questa è solo una via in più.</li>
     <li><b>Elenco delle nuove designazioni:</b> a ogni sincronizzazione automatica che trova qualcosa, il bot ti manda un messaggio con le gare aggiunte (e quelle variate), complete di data, ora, impianto, ruolo e codici referto.</li>
@@ -23,6 +24,11 @@ const WHATS_NEW_TEXT = `
     <li><b>Il bot è tuo:</b> lo crei in un minuto con <b>@BotFather</b> (<i>/newbot</i>, un nome, uno username che finisca per "bot") e la configurazione ti guida passo passo. Nessun bot condiviso con altri.</li>
     <li><b>Abbinamento in 3 passaggi:</b> incolli il token nella configurazione, lo script genera una key, tu scrivi <b>/start</b> al bot e incolli la key. Da quel momento il bot scrive <b>solo alla tua chat</b>.</li>
     <li><b>Si disattiva quando vuoi:</b> riapri <i>Configura Bot Telegram</i>, lascia il campo del token vuoto e premi OK.</li>
+  </ul>
+  <p><b>Versione 0.8.3</b></p>
+  <ul>
+    <li><b>Nome repository aggiornato:</b> il progetto su GitHub ha un nuovo nome; i link e il controllo aggiornamenti puntano al nuovo indirizzo.</li>
+    <li><b>Stringa copyright aggiornata:</b> corrette le informazioni di copyright nella finestra <i>Informazioni su AutoCalendar</i>.</li>
   </ul>`;
 
 const updtMailBody = `
@@ -204,7 +210,9 @@ function showInfo() {
     <div style="font-size: 0.8em; background: #f9f9f9; padding: 10px; border-radius: 5px; text-align: left; margin: 10px 0;">
       <strong>© Info Copyright:</strong><br>
       • TBT, FWM, Fipav Web Manager sono copyright di TieBreakTech.<br>
-      • FipavOnline è copyright di Manufacturing Point Software.
+      • FipavOnline è copyright di Manufacturing Point Software.<br>
+      • SOL / SOL arbitri e i sistemi del CED FIPAV sono copyright della Federazione Italiana Pallavolo (FIPAV).
+
     </div>
     <p style="font-size: 0.85em;">Prodotto concesso in <b>Licenza MIT</b>.</p>
     <div style="margin: 15px 0;">
