@@ -1,14 +1,31 @@
 const CALENDAR_NAME = "Partite - AC";
 const MAJOR_VERSION = 0;
-const MINOR_VERSION = 7;
-const PATCH_VERSION = 1;
+const MINOR_VERSION = 8;
+const PATCH_VERSION = 0;
 const CURRENT_VERSION = `${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}`;
 const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-and-FipavOnline";
 
+// Filtro Gmail condiviso da sincronizzazione automatica e manuale.
+const MAIL_FILTER = [
+  'from:tiebreaktech.com',
+  'from:federvolley.it',
+  'subject:Designazione',
+  'subject:"Gara n."',
+  'subject:"VARIAZIONE GARA"',
+  'subject:"SPOSTAMENTO GARA"',
+  'subject:"modifiche alla gara"'
+].join(" OR ");
+
 const WHATS_NEW_TEXT = `
   <ul>
-    <li><b>Niente più Google Meet:</b> gli eventi con invitati non generano più il link alla videochiamata. Nell'evento resta solo l'indirizzo dell'impianto (colonna C).</li>
-    <li><b>Pulizia automatica:</b> alla prima sincronizzazione il Meet viene rimosso anche dagli eventi già presenti in calendario.</li>
+    <li><b>Sincronizzazione automatica riparata:</b> il trigger temporizzato ora legge davvero le email. Prima la ricerca Gmail riceveva l'oggetto evento del trigger invece della query e non trovava nulla: funzionava solo la sincronizzazione manuale.</li>
+    <li><b>Due nuovi formati:</b> designazioni dei <b>Comitati Territoriali FIPAV</b> (gestionale SOL arbitri) e designazioni <b>nazionali del CED FIPAV</b> (serie A/B).</li>
+    <li><b>Ruoli non arbitrali:</b> <i>Osservatore</i>, <i>Delegato</i>, <i>VideoCheck</i>, <i>Segnapunti</i>... vanno in calendario con il ruolo accanto alla categoria, senza scriverti come arbitro della gara.</li>
+    <li><b>Mail inoltrate:</b> una designazione girata da un collega viene letta correttamente. In più, sulle mail TBT inoltrate non viene più preso l'orario di invio della mail al posto di quello della gara.</li>
+    <li><b>Numeri gara con lo zero iniziale</b> (es. 01018 delle serie nazionali) non vengono più troncati nel foglio.</li>
+    <li><b>Variazioni TBT:</b> data e ora delle mail di modifica gara vengono riconosciute di nuovo.</li>
+    <li><b>Indirizzi più puliti:</b> apostrofi, accenti e i link di Google Maps che Gmail infila nel testo non finiscono più nel campo Luogo.</li>
+    <li><b>Gemini:</b> aggiornato al modello 2.5 Flash (le API key nuove non supportano più 1.5 Flash).</li>
   </ul>`;
 
 const updtMailBody = `
@@ -52,6 +69,10 @@ function normalizeText_(s) {
     .replace(/\s*-\s*/g, " - ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function pad2_(v) {
+  return String(v).trim().length === 1 ? "0" + String(v).trim() : String(v).trim();
 }
 
 function capitalizeName_(name) {
@@ -243,7 +264,7 @@ function setupTrigger() {
 }
 
 function manualSync() {
-  const summary = syncGmailToSheetAndCalendar('(from:info@tiebreaktech.com OR subject:"Designazione gara" OR subject:"VARIAZIONE GARA" OR subject:"SPOSTAMENTO GARA") newer_than:30d');
+  const summary = syncGmailToSheetAndCalendar('(' + MAIL_FILTER + ') newer_than:30d');
   const ui = SpreadsheetApp.getUi();
   ui.alert(
     '✅ Sincronizzazione terminata',
@@ -253,7 +274,10 @@ function manualSync() {
 }
 
 function syncGmailToSheetAndCalendar(customQuery) {
-  var query = customQuery || 'is:unread (from:info@tiebreaktech.com OR subject:"Designazione gara" OR subject:"VARIAZIONE GARA" OR subject:"SPOSTAMENTO GARA") newer_than:30d';
+  // I trigger temporizzati passano un oggetto evento come primo argomento:
+  // senza questo controllo la query di ricerca diventa un oggetto e la sincronizzazione automatica non trova nulla.
+  var defaultQuery = 'is:unread (' + MAIL_FILTER + ') newer_than:30d';
+  var query = (typeof customQuery === "string" && customQuery) ? customQuery : defaultQuery;
   var threads = GmailApp.search(query);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("Arbitro") || ss.getSheets()[0];
@@ -275,7 +299,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
     if (subject.includes("VARIAZIONE") || subject.includes("SPOSTAMENTO") || subject.includes("AUTORIZZAZIONE")) {
       dataGara = isRegionale ? parseSpostamentoTBT(htmlBody) : parseSpostamentoFipavOnline(htmlBody);
     } else {
-      dataGara = isRegionale ? parseRegionaleStandard(htmlBody) : parseTerritorialeStandard(htmlBody);
+      dataGara = isRegionale ? parseRegionaleStandard(htmlBody) : (parseFipavNazionale(htmlBody) || parseComitatoFipav(htmlBody) || parseTerritorialeStandard(htmlBody));
     }
 
     if (apiKey) {
@@ -332,8 +356,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
           finalCodA,
           finalCodF,
           capitalizeName_(dataGara.arb1 || oldRow[9]),
-          capitalizeName_(dataGara.arb2 || oldRow[10]),
-          ""
+          capitalizeName_(dataGara.arb2 || oldRow[10])
         ];
         
         var targetRange = sheet.getRange(rowIndex, 1, 1, rowData.length);
@@ -347,12 +370,14 @@ function syncGmailToSheetAndCalendar(customQuery) {
           dataGara.categoria, dataGara.numeroGara,
           isRegionale ? "-" : (dataGara.codA || ""),
           isRegionale ? "-" : (dataGara.codF || ""),
-          capitalizeName_(dataGara.arb1 || ""), 
-          capitalizeName_(dataGara.arb2 || ""), 
-          ""
+          capitalizeName_(dataGara.arb1 || ""),
+          capitalizeName_(dataGara.arb2 || "")
         ];
-        sheet.appendRow(rowDataNew);
-        sheet.getRange(sheet.getLastRow(), 7, 1, 3).setNumberFormat("@");
+        var newRowIndex = sheet.getLastRow() + 1;
+        // Formato testo prima della scrittura: altrimenti i numeri gara con lo zero
+        // iniziale (es. 01018 delle serie nazionali) diventano numeri e lo perdono.
+        sheet.getRange(newRowIndex, 7, 1, 3).setNumberFormat("@");
+        sheet.getRange(newRowIndex, 1, 1, rowDataNew.length).setValues([rowDataNew]);
         addedCount++;
       }
       msg.markRead();
@@ -362,6 +387,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
   SpreadsheetApp.flush();
   sortSheetByDateTime_();
   const movedCount = createCalendarEvents();
+  try { checkUpdatesAutomated(); } catch (e) {}
   return { added: addedCount, moved: movedCount };
 }
 
@@ -711,30 +737,50 @@ function parseRegionaleStandard(html) {
   var text = cleanEmail(html);
   var res = { codA: "-", codF: "-" };
   try {
-    var matchGara = text.match(/Gara numero (\d+)/i);
-    if (!matchGara) return null;
-    res.numeroGara = matchGara[1];
+    // Numero, categoria, data e ora dalla riga della gara. Ancorarsi a quella riga evita
+    // di pescare l'ora di invio ("Date: ... alle ore 21:24") nelle mail inoltrate.
+    var mLine = text.match(/Gara numero\s+(\d+)\s+(.*?)\s+del\s+(\d{1,2})\s*[-\/]\s*(\d{1,2})\s*[-\/]\s*(\d{4})(?:\s+(\d{1,2})[:.](\d{2}))?/i);
+    if (mLine) {
+      res.numeroGara = mLine[1];
+      res.categoria = normalizeText_(mLine[2]);
+      res.data = pad2_(mLine[3]) + "/" + pad2_(mLine[4]) + "/" + mLine[5];
+      if (mLine[6]) res.ora = pad2_(mLine[6]) + ":" + mLine[7];
+    } else {
+      var matchGara = text.match(/Gara numero (\d+)/i);
+      if (!matchGara) return null;
+      res.numeroGara = matchGara[1];
 
-    var mData = text.match(/(\d{2}\s*[-\/]\s*\d{2}\s*[-\/]\s*\d{4})/);
-    if (mData) {
-      res.data = mData[1].replace(/\s/g, "").replace(/-/g, "/");
+      var mData = text.match(/(\d{2}\s*[-\/]\s*\d{2}\s*[-\/]\s*\d{4})/);
+      if (mData) res.data = mData[1].replace(/\s/g, "").replace(/-/g, "/");
+
+      var mCat = text.match(/Gara numero \d+\s+(.*?)\s+del/i);
+      if (mCat) res.categoria = normalizeText_(mCat[1]);
     }
 
-    var mOra = text.match(/(\d{2}[:\.]\d{2})/);
-    if (mOra) res.ora = mOra[1].replace(".", ":");
+    if (!res.ora) {
+      var mOra = text.match(/(\d{2}[:\.]\d{2})/);
+      if (mOra) res.ora = mOra[1].replace(".", ":");
+    }
 
-    var lines = text.split('\n').map(s => normalizeText_(s)).filter(s => s.length > 0);
+    // I link (Maps, "Luogo evento", tracciamento) non sono righe di dati.
+    var lines = text.split('\n').map(s => normalizeText_(s))
+      .filter(s => s.length > 0 && !/^<?https?:\/\//i.test(s));
 
     // Riga dell'impianto: contiene un CAP isolato (\b\d{5}\b evita di agganciare
     // i numeri di telefono dei dirigenti, che sono cifre consecutive piu' lunghe).
     var capIndex = lines.findIndex(l => /\b\d{5}\b/.test(l) && !/^Gara numero/i.test(l));
     if (capIndex > 1) {
-      var pair = splitTeamsSmart_(lines[capIndex - 1]);
-      if (pair) {
-        res.squadraCasa = pair.casa;
-        res.squadraOspite = pair.ospite;
+      // Nel corpo in testo semplice il CAP sta su una riga da solo: l'impianto e' quella sopra.
+      var capAlone = /^\d{5}$/.test(lines[capIndex]);
+      var impIdx = capAlone ? capIndex - 1 : capIndex;
+      if (impIdx > 0) {
+        var pair = splitTeamsSmart_(lines[impIdx - 1]);
+        if (pair) {
+          res.squadraCasa = pair.casa;
+          res.squadraOspite = pair.ospite;
+        }
+        res.luogo = capAlone ? lines[impIdx] + " " + lines[capIndex] : lines[capIndex];
       }
-      res.luogo = lines[capIndex];
     }
 
     // Fallback: prima riga con " - " dopo "Gara numero", l'impianto e' quella successiva.
@@ -754,13 +800,211 @@ function parseRegionaleStandard(html) {
       }
     }
 
-    var mCat = text.match(/Gara numero \d+\s+(.*?)\s+del/i);
-    if (mCat) res.categoria = normalizeText_(mCat[1]);
+    // Il "°" dei ruoli a volte arriva illeggibile, quindi non lo pretendo.
+    var mA1 = text.match(/\b1\s*[^\s\w]{0,3}\s*arbitro:\s*([^\n\r]+)/i);
+    var mA2 = text.match(/\b2\s*[^\s\w]{0,3}\s*arbitro:\s*([^\n\r]+)/i);
+    res.arb1 = mA1 ? normalizeText_(mA1[1]) : "";
+    res.arb2 = mA2 ? normalizeText_(mA2[1]) : "";
 
-    res.arb1 = extractField(text, "1° arbitro:");
-    res.arb2 = extractField(text, "2° arbitro:");
+    // "Ruolo: Delegato" (o osservatore, segnapunti...): ruolo non arbitrale -> in categoria.
+    var mRuolo = text.match(/^Ruolo:\s*(.+)$/im);
+    if (mRuolo) {
+      var ruolo = normalizeText_(mRuolo[1]);
+      if (ruolo && !/arbitro/i.test(ruolo)) {
+        res.categoria = res.categoria ? res.categoria + " (" + ruolo + ")" : ruolo;
+      }
+    }
     return res;
   } catch (e) { return null; }
+}
+
+/**
+ * Designazioni dei Comitati Territoriali FIPAV (sistema web-fipav / SOL arbitri,
+ * es. Milano Monza Lecco). Formato a righe fisse e senza codici referto:
+ *
+ *   COGNOME NOME
+ *   Designazione a svolgere le funzioni di 1° Arbitro.
+ *   Gara n. 77 - 1^ Divisione - Femminile.
+ *   Del 23/01/2026 (Venerdi) ore 21.15.
+ *   SQUADRA CASA - SQUADRA OSPITE.
+ *   <impianto>. <via>. <comune>.
+ */
+function parseComitatoFipav(html) {
+  var text = cleanEmail(html);
+  if (!/Designazione a svolgere le funzioni/i.test(text)) return null;
+
+  var lines = text.split('\n').map(l => normalizeText_(l)).filter(l => l !== "");
+  var res = { codA: "-", codF: "-" };
+
+  // Riga data/ora: e' l'ancora della mail, tutto il resto si posiziona rispetto a lei.
+  var delIdx = -1;
+  for (var i = 0; i < lines.length; i++) {
+    var mDel = lines[i].match(/^Del\s+(\d{1,2}\/\d{1,2}\/\d{4}).*?\bore\s*(\d{1,2}[:.]\d{2})/i);
+    if (mDel) {
+      res.data = mDel[1];
+      res.ora = mDel[2].replace(".", ":");
+      delIdx = i;
+      break;
+    }
+  }
+  if (delIdx === -1) return null;
+
+  // "Gara n. 77 - 1^ Divisione - Femminile."
+  for (var j = 0; j < delIdx; j++) {
+    var mGara = lines[j].match(/^Gara n\.?\s*([A-Z0-9]+)\b\s*(?:-\s*(.*))?$/i);
+    if (mGara) {
+      res.numeroGara = mGara[1];
+      if (mGara[2]) res.categoria = stripTrailingDot_(mGara[2]);
+      break;
+    }
+  }
+  if (!res.numeroGara) return null;
+
+  var pair = splitTeamsSmart_(stripTrailingDot_(lines[delIdx + 1] || ""));
+  if (pair) {
+    res.squadraCasa = pair.casa;
+    res.squadraOspite = pair.ospite;
+  }
+
+  // Impianto: le righe successive (nome palestra, via, comune) fino alla prima riga di servizio.
+  var luogo = [];
+  for (var k = delIdx + 2; k < lines.length && luogo.length < 4; k++) {
+    var l = lines[k];
+    if (/^(Telefono|Note|Si rammenta|Per Confermare|La commissione|Si autorizza|email generata|Da:|Date:|Subject:|To:)/i.test(l)) break;
+    if (/^[-\s.>*]/.test(l)) break;
+    if (/^<?https?:\/\//i.test(l)) continue; // link Maps aggiunti da Gmail nel testo semplice
+    var v = stripTrailingDot_(l);
+    if (v) luogo.push(v);
+  }
+  res.luogo = luogo.length > 0 ? luogo.join(", ") : "Vedi mail";
+
+  // Ruolo e nome del designato: il nome e' la riga subito sopra la designazione.
+  var rIdx = lines.findIndex(l => /Designazione a svolgere le funzioni/i.test(l));
+  var ruolo = "";
+  if (rIdx !== -1) {
+    var mRole = lines[rIdx].match(/funzioni di\s+(.+)$/i);
+    if (mRole) ruolo = stripTrailingDot_(mRole[1]);
+  }
+
+  var nome = "";
+  if (rIdx > 0) {
+    var cand = stripTrailingDot_(lines[rIdx - 1]);
+    if (cand.indexOf("@") === -1 && /^[A-Za-zÀ-ÿ'\s.]{4,60}$/.test(cand)) nome = cand;
+  }
+
+  if (/^1\D{0,12}?arbitro$/i.test(ruolo)) {
+    if (nome) res.arb1 = nome;
+  } else if (/^2\D{0,12}?arbitro$/i.test(ruolo)) {
+    if (nome) res.arb2 = nome;
+  } else if (ruolo) {
+    // Osservatore, segnapunti, giudice di linea...: il ruolo va in categoria e le
+    // colonne arbitri restano vuote, perche' la mail non dice chi sono gli arbitri.
+    res.ruolo = ruolo;
+    res.categoria = res.categoria ? res.categoria + " (" + ruolo + ")" : ruolo;
+  }
+
+  return res;
+}
+
+// Ruoli non arbitrali citati nelle designazioni nazionali.
+var FIPAV_NAZ_ROLES_ = ["Addetto VideoCheck", "Assistente ?VideoCheck", "Segnapunti", "Refertista", "Commissario[^0-9]*", "Giudice di linea ?\\d?"];
+
+/**
+ * Le colonne della riga squadre sono tagliate a 23 caratteri e seguite dalla sigla
+ * della provincia, separata da 2+ spazi ("CUS CAGLIARI   CA").
+ * ponytail: larghezza 23 dedotta dai campioni reali; se FIPAV cambia il tracciato
+ * basta aggiornare la costante qui sotto.
+ */
+function cleanTeamCell_(v) {
+  var raw = String(v == null ? "" : v).replace(/\s+$/, "");
+  var name = normalizeText_(raw.split(/\s{2,}/)[0]);
+  // Sigla provincia troncata dal taglio a 23 caratteri ("VOLLEY PARELLA TORINO T").
+  if (raw.length >= 23 && /\s[A-Z]$/.test(name)) name = name.replace(/\s[A-Z]$/, "");
+  return name;
+}
+
+/**
+ * Designazioni FIPAV nazionali (CED Fipav, tessonline@federvolley.it, serie A/B):
+ *
+ *   Signor/a GIANNINI GABRIELE
+ *   Le comunichiamo che è stato/a designato/a per la gara:
+ *   Serie B1  /F numero 08176 Del 09.05.2026 Ore 16.00
+ *   VOLLEY PARELLA TORINO T - ACROBATICA ALESSANDRIA  AL
+ *   a TORINO            TO
+ *   Campo PALESTRA S.E. MANZONI - CAMPO CENTRALE
+ *   CORSO SVIZZERA, 63
+ *   Sono designati: 1° Arbitro   GIANNINI GABRIELE
+ *                   2° Arbitro   ROSI DARIO
+ */
+function parseFipavNazionale(html) {
+  var lines = cleanEmail(html, true).split('\n');
+
+  // Riga gara: "<categoria> numero <nr> Del <data> Ore <ora>". E' anche la firma del formato.
+  var gIdx = -1, mGara = null;
+  for (var i = 0; i < lines.length; i++) {
+    mGara = lines[i].match(/^(.*?)\s+numero\s+([A-Z0-9]+)\s+Del\s+(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})\s+Ore\s+(\d{1,2})[.:](\d{2})/i);
+    if (mGara) { gIdx = i; break; }
+  }
+  if (gIdx === -1) return null;
+
+  var res = { codA: "-", codF: "-" };
+  res.categoria = normalizeText_(mGara[1]);
+  res.numeroGara = mGara[2];
+  res.data = pad2_(mGara[3]) + "/" + pad2_(mGara[4]) + "/" + mGara[5];
+  res.ora = pad2_(mGara[6]) + ":" + mGara[7];
+
+  // Squadre: riga subito successiva.
+  var sides = String(lines[gIdx + 1] || "").split(/\s+-\s+/);
+  if (sides.length >= 2) {
+    res.squadraCasa = cleanTeamCell_(sides[0]);
+    res.squadraOspite = cleanTeamCell_(sides.slice(1).join(" - "));
+  }
+
+  // Impianto: riga "Campo ...", indirizzo sotto, citta' e provincia sopra ("a TORINO TO").
+  var luogo = [];
+  for (var c = gIdx + 1; c < lines.length; c++) {
+    if (!/^Campo\s+\S/i.test(lines[c])) continue;
+    luogo.push(normalizeText_(lines[c].replace(/^Campo\s+/i, "")));
+    for (var a = c + 1; a < lines.length; a++) {
+      var indirizzo = normalizeText_(lines[a]);
+      if (!indirizzo) break;
+      if (/^<?https?:\/\//i.test(indirizzo)) continue; // link Maps aggiunti da Gmail
+      luogo.push(indirizzo);
+      break;
+    }
+    for (var b = c - 1; b >= 0 && b >= c - 3; b--) {
+      var mCity = normalizeText_(lines[b]).match(/^a\s+(.+)$/i);
+      if (mCity) { luogo.push(normalizeText_(mCity[1])); break; }
+    }
+    break;
+  }
+  res.luogo = luogo.length > 0 ? luogo.join(", ") : "Vedi mail";
+
+  // Ufficiali. Il "°" arriva spesso come carattere illeggibile, quindi non lo pretendo.
+  var mSig = lines.join("\n").match(/Signor\/a\s+(.+)/i);
+  var ioNome = mSig ? normalizeText_(mSig[1]) : "";
+  var mioRuolo = "";
+  var arbRe = /^(?:Sono designati:\s*)?([12])\s*[^\s\w]{0,3}\s*Arbitro\s+(.+)$/i;
+  var altriRe = new RegExp("^(" + FIPAV_NAZ_ROLES_.join("|") + ")\\s+(.+)$", "i");
+
+  for (var r = gIdx; r < lines.length; r++) {
+    var line = normalizeText_(lines[r]);
+    var mArb = line.match(arbRe);
+    if (mArb) {
+      if (mArb[1] === "1") res.arb1 = normalizeText_(mArb[2]);
+      else res.arb2 = normalizeText_(mArb[2]);
+      continue;
+    }
+    var mAltro = line.match(altriRe);
+    if (mAltro && ioNome && normalizeText_(mAltro[2]).toUpperCase() === ioNome.toUpperCase()) {
+      mioRuolo = normalizeText_(mAltro[1]);
+    }
+  }
+
+  // Ruolo non arbitrale (VideoCheck, segnapunti...): va in categoria, come per i comitati.
+  if (mioRuolo) res.categoria = res.categoria ? res.categoria + " (" + mioRuolo + ")" : mioRuolo;
+
+  return res;
 }
 
 function parseSpostamentoFipavOnline(html) {
@@ -802,18 +1046,17 @@ function parseSpostamentoTBT(html) {
 
     // 2. Estrazione Data e Ora Attuale (formato YYYY-MM-DD o DD/MM/YYYY)
     // Cerchiamo la riga "Data attuale:"
-    var matchDataOra = text.match(/Data attuale:\s*(\d{4})-(\d{2})-(\d{2})\s*(\d{2}:\d{2})/i) ||
-                       text.match(/Data attuale:\s*(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/i);
-    
-    if (matchDataOra) {
-      // Se il primo gruppo catturato ha 4 cifre è anno (YYYY-MM-DD), altrimenti è già DD/MM/YYYY
-      if (matchDataOra[1].length === 4) {
-        res.data = matchDataOra[3] + "/" + matchDataOra[2] + "/" + matchDataOra[1];
-        res.ora = matchDataOra[4];
-      } else {
-        res.data = matchDataOra[1];
-        res.ora = matchDataOra[2];
-      }
+    // Attenzione: cleanEmail/normalizeText_ trasformano "2026-11-22" in "2026 - 11 - 22",
+    // quindi i separatori vanno letti con \s*-\s*.
+    var mIso = text.match(/Data attuale:\s*(\d{4})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*(\d{1,2}[:.]\d{2})/i);
+    var mIta = text.match(/Data attuale:\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})\s*(\d{1,2}[:.]\d{2})/i);
+
+    if (mIso) {
+      res.data = pad2_(mIso[3]) + "/" + pad2_(mIso[2]) + "/" + mIso[1];
+      res.ora = mIso[4].replace(".", ":");
+    } else if (mIta) {
+      res.data = pad2_(mIta[1]) + "/" + pad2_(mIta[2]) + "/" + mIta[3];
+      res.ora = mIta[4].replace(".", ":");
     }
 
     // 3. Estrazione Impianto Attuale
@@ -828,19 +1071,44 @@ function parseSpostamentoTBT(html) {
   }
 }
 
-function cleanEmail(html) {
+var QP_CHARS_ = {
+  "=C3=A0": "à", "=C3=A8": "è", "=C3=A9": "é", "=C3=AC": "ì", "=C3=B2": "ò",
+  "=C3=B9": "ù", "=C2=B0": "°", "=C2=A0": " ", "=E2=80=99": "'", "=E2=80=93": "-",
+  "=20": " ", "=3D": "=", "=EF=BF=BD": ""
+};
+
+var HTML_ENTITIES_ = {
+  "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"',
+  "&apos;": "'", "&#39;": "'", "&#039;": "'", "&#176;": "°", "&#8217;": "'"
+};
+
+function cleanEmail(html, keepColumns) {
   var s = String(html || "")
+    // I soft break Quoted-Printable vanno via per primi: possono spezzare anche i tag ("<br=\n>").
+    .replace(/=\r?\n/g, '');
+  Object.keys(QP_CHARS_).forEach(function(k) { s = s.split(k).join(QP_CHARS_[k]); });
+  s = s
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/=C3=A8/g, 'è') // Fix codifica Quoted-Printable comune
-    .replace(/=3D/g, '=')
-    .replace(/=20/g, ' ')
-    .replace(/=\r?\n/g, '')
-    .replace(/&nbsp;/g, ' ')
+    .replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+  Object.keys(HTML_ENTITIES_).forEach(function(k) { s = s.split(k).join(HTML_ENTITIES_[k]); });
+  s = s
+    .replace(/&#(\d{2,5});/g, function(_, n) { return String.fromCharCode(parseInt(n, 10)); })
+    .replace(/\uFFFD/g, '')  // caratteri non decodificabili (le "è" e i "°" delle mail FIPAV)
     .replace(/\r/g, '\n')
     .replace(/\n\s*\n/g, '\n');
-  s = s.split('\n').map(line => normalizeText_(line)).join('\n');
+  // Rimuove i marcatori di citazione delle mail inoltrate (">" a inizio riga).
+  // keepColumns: le mail a colonne fisse usano la spaziatura multipla come separatore
+  // di campo, quindi si tolgono solo gli spazi ai bordi della riga.
+  s = s.split('\n').map(function(line) {
+    var l = String(line).replace(/^[>\s]+/, '');
+    return keepColumns ? l.replace(/[\u2012\u2013\u2014\u2212]/g, "-").replace(/\s+$/, "") : normalizeText_(l);
+  }).join('\n');
   return s;
+}
+
+function stripTrailingDot_(v) {
+  return String(v == null ? "" : v).replace(/\s*\.\s*$/, "").trim();
 }
 
 function extractField(text, label) {
@@ -872,7 +1140,7 @@ function getOrCreateCalendar() {
 }
 
 function callGeminiAI(html, key) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
   const prompt = `Analizza HTML designazione volley. Estrai dati gara. Rispondi SOLO JSON: {"data":"DD/MM/YYYY","ora":"HH:MM","luogo":"...","squadraCasa":"...","squadraOspite":"...","categoria":"...","numeroGara":"...","codA":"...","codF":"...","arb1":"...","arb2":"..."}. Testo: ${html}`;
   try {
     const res = UrlFetchApp.fetch(url, {
