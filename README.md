@@ -38,12 +38,25 @@ Per un'estrazione perfetta che distingua squadre da indirizzi o dirigenti, lo sc
 4. Premi su `Crea chiave`, suggessivamente potrai cliccare sulla chiave e poi sul sibolo di copia. 
 5. Tratta questa chiave come una password e **NON CONDIVIDERLA CON NESSUNO**, incollala nella configurazione come da istruzioni del punto seguente.
 
-### 3. Configurazione Finale
+### 3. Creare il Bot Telegram (non obbligatorio)
+Se vuoi ricevere le designazioni e i promemoria anche su Telegram, serve un bot **tuo**: si crea in un minuto e il token resta solo tuo.
+
+1. Su Telegram apri la chat con **[@BotFather](https://t.me/BotFather)**.
+2. Scrivi **`/newbot`**.
+3. Dai un **nome** al bot (quello che vedrai in chat, es. `AutoCalendar Rossi`).
+4. Scegli uno **username** libero che finisca per `bot` (es. `autocalendar_rossi_bot`).
+5. BotFather ti risponde con il **token**, una riga lunga nella forma `1234567890:AAH...`. Copiala tutta.
+6. Tratta il token come una password e **non condividerlo**: chi lo ha può scrivere a nome del tuo bot. Lo incollerai al passaggio successivo.
+
+*(Token perso? Su @BotFather scrivi `/token` e scegli il tuo bot. Puoi anche cambiargli nome con `/setname` o foto con `/setuserpic`.)*
+
+### 4. Configurazione Finale
 * Torna al Foglio Google e ricarica la pagina.
 * Nel nuovo menù **`🏐 AutoCalendar`**, seleziona **Configurazione Iniziale Completa**.
 * Inserisci il tuo cognome e il tuo nome, inserisci l'API Key se la stai utilizzando, scegli la frequenza (es. ogni 2 ore), aggiungi eventuali invitati (es. i tuoi familiari) e aggiungi le notifiche personalizzate (oltre alle 8.00 del giorno stesso e al giorno precedente all'ora della gara).
+* L'ultimo passaggio chiede il **token del bot Telegram**: è facoltativo, se non ti interessa lascia il campo vuoto e premi OK. Se l'hai creato al punto 3, incollalo e segui l'abbinamento descritto in [Bot Telegram](#-bot-telegram-opzionale).
 
-### 4. Come Funziona
+### 5. Come Funziona
 
 1. Gmail riceve la designazione (non leggerla altrimenti non verrà inserita in automatico).
 2. Lo script la analizza.
@@ -119,6 +132,36 @@ Le gare vengono identificate tramite **Numero Gara**, evitando doppioni anche in
 - Sincronizzazioni multiple
 - Variazioni successive
 
+### 🤖 Bot Telegram (opzionale)
+
+Il bot è **tuo**: lo crei con [@BotFather](https://t.me/BotFather) come spiegato al [punto 3 dell'installazione](#3-creare-il-bot-telegram-non-obbligatorio). Nessun bot condiviso, nessun token da chiedere in giro: le tue designazioni restano tra il tuo foglio e la tua chat. Senza bot tutto il resto funziona esattamente come prima.
+
+**Cosa ti manda**
+
+| Quando | Messaggio |
+| --- | --- |
+| A ogni **sincronizzazione automatica** che trova qualcosa | elenco delle designazioni nuove e di quelle variate, con data, ora, impianto, categoria, ruolo e codici referto |
+| A **ogni promemoria del calendario** | la stessa gara in chat: 24 ore prima, la mattina della gara alle 8:00 e alle tue notifiche personalizzate |
+
+La mattina della gara il messaggio delle 8:00 contiene **tutte le partite di giornata** in un unico avviso.
+
+**Abbinamento (una volta sola)**
+
+1. Menù **`🏐 AutoCalendar`** > `Impostazioni Singole` > **Configura Bot Telegram** (la finestra riporta anche i passaggi di @BotFather), incolla il token e premi **OK**.
+2. Lo script verifica il token, ti conferma il nome del tuo bot e genera una **key** tipo `AC-7F3K9Q`.
+3. Apri la chat con il **tuo** bot, scrivi **`/start`** e **incolla la key**.
+4. Torna sul foglio e premi **OK** sulla finestra di conferma: lo script trova la key, abbina la chat e ti manda un messaggio di benvenuto.
+
+Da quel momento il bot scrive **solo alla tua chat**. La key è usa e getta: dopo l'abbinamento viene cancellata.
+
+> **Non funziona l'abbinamento?** Controlla di aver scritto `/start` *prima* di incollare la key, poi riapri **Configura Bot Telegram** e reincolla lo stesso token: la ricerca della key riparte.
+
+**Prova e disattivazione**
+* `Impostazioni Singole` > **Prova Notifica Telegram** invia un messaggio di test.
+* Per spegnerlo: **Configura Bot Telegram**, lascia il campo del token **vuoto** e premi OK. Il promemoria su Telegram si disattiva da solo.
+
+*(I promemoria in chat vengono controllati ogni 15 minuti, quindi possono arrivare con qualche minuto di scarto rispetto alla notifica del calendario: Google consente al massimo 20 trigger per progetto, quindi non è possibile un trigger per singolo promemoria.)*
+
 ### 🔔 Notifiche Calendario Automatiche
 Ogni evento include:
 - Promemoria **24 ore prima**
@@ -156,7 +199,8 @@ Se configurata, l’AI:
 
 ## ⚠️ Note di Sicurezza e Mobile
 
-* **Privacy**: La tua API Key viene salvata nelle `ScriptProperties` protette di Google. Non è visibile nel codice se condividi il foglio.
+* **Privacy**: La tua API Key e il token del bot Telegram vengono salvati nelle `ScriptProperties` protette di Google. Non sono visibili nel codice se condividi il foglio.
+* **Token Telegram**: è il token del **tuo** bot creato con @BotFather. Trattalo come una password: chi lo ha può scrivere a nome del tuo bot. Il bot scrive solo alla chat abbinata; durante l'abbinamento lo script legge i messaggi in attesa per trovare la tua key, senza consumarli.
 * **Google Calendar**: Se non vedi gli eventi sul tuo smartphone, apri l'app **Google Calendar** > **Impostazioni** > **Partite - AC** e attiva la **Sincronizzazione**.
 
 ---
