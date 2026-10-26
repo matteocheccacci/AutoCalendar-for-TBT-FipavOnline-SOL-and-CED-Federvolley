@@ -1,7 +1,7 @@
 const CALENDAR_NAME = "Partite - AC";
 const MAJOR_VERSION = 0;
 const MINOR_VERSION = 8;
-const PATCH_VERSION = 1;
+const PATCH_VERSION = 2;
 const CURRENT_VERSION = `${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}`;
 const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-and-FipavOnline";
 
@@ -17,16 +17,12 @@ const MAIL_FILTER = [
 
 const WHATS_NEW_TEXT = `
   <ul>
-    <li><b>Sincronizzazione automatica riparata:</b> il trigger temporizzato ora legge davvero le email. Prima la ricerca Gmail riceveva l'oggetto evento del trigger invece della query e non trovava nulla: funzionava solo la sincronizzazione manuale.</li>
-    <li><b>Due nuovi formati:</b> designazioni dei <b>Comitati Territoriali FIPAV</b> (gestionale SOL arbitri) e designazioni <b>nazionali del CED FIPAV</b> (serie A/B).</li>
-    <li><b>Ruoli non arbitrali:</b> <i>Osservatore</i>, <i>Delegato</i>, <i>VideoCheck</i>, <i>Segnapunti</i>... vanno in calendario con il ruolo accanto alla categoria, senza scriverti come arbitro della gara.</li>
-    <li><b>Nuova colonna L "Ruolo":</b> il ruolo che hai in quella gara (1° arbitro, 2° arbitro, osservatore, delegato, VideoCheck...) ha una colonna sua e compare nell'evento del calendario. L'intestazione viene aggiunta da sola alla prima sincronizzazione.</li>
-    <li><b>Mail inoltrate ignorate:</b> la designazione di un collega girata per posta non entra più nel foglio. Ci finiscono solo le mail arrivate direttamente dal sistema federale.</li>
-    <li><b>Niente righe spazzatura:</b> se da una mail non si ricavano data, ora e squadre, la riga non viene scritta e la mail resta da leggere (prima potevano comparire righe con dentro pezzi di CSS).</li>
-    <li><b>Numeri gara con lo zero iniziale</b> (es. 01018 delle serie nazionali) non vengono più troncati nel foglio.</li>
-    <li><b>Variazioni TBT:</b> data e ora delle mail di modifica gara vengono riconosciute di nuovo.</li>
-    <li><b>Indirizzi più puliti:</b> apostrofi, accenti e link non finiscono più nel campo Luogo. Sulle mail TBT non viene più preso l'orario di invio al posto di quello della gara.</li>
-    <li><b>Gemini:</b> aggiornato al modello 2.5 Flash (le API key nuove non supportano più 1.5 Flash).</li>
+    <li><b>Bot Telegram (opzionale):</b> AutoCalendar può scriverti su Telegram. Le notifiche restano attive anche senza il bot, questa è solo una via in più.</li>
+    <li><b>Elenco delle nuove designazioni:</b> a ogni sincronizzazione automatica che trova qualcosa, il bot ti manda un messaggio con le gare aggiunte (e quelle variate), complete di data, ora, impianto, ruolo e codici referto.</li>
+    <li><b>Promemoria anche su Telegram:</b> ogni promemoria del calendario ti arriva anche in chat, con gli stessi orari (24 ore prima, la mattina della gara alle 8:00 e le tue notifiche personalizzate). La mattina della gara ricevi l'elenco delle partite di giornata.</li>
+    <li><b>Il bot è tuo:</b> lo crei in un minuto con <b>@BotFather</b> (<i>/newbot</i>, un nome, uno username che finisca per "bot") e la configurazione ti guida passo passo. Nessun bot condiviso con altri.</li>
+    <li><b>Abbinamento in 3 passaggi:</b> incolli il token nella configurazione, lo script genera una key, tu scrivi <b>/start</b> al bot e incolli la key. Da quel momento il bot scrive <b>solo alla tua chat</b>.</li>
+    <li><b>Si disattiva quando vuoi:</b> riapri <i>Configura Bot Telegram</i>, lascia il campo del token vuoto e premi OK.</li>
   </ul>`;
 
 const updtMailBody = `
@@ -126,7 +122,9 @@ function onOpen() {
       .addItem('Imposta API Gemini', 'setGeminiKey')
       .addItem('Cambia Frequenza Aggiornamento', 'setFrequency')
       .addItem('Gestisci Invitati Calendario', 'setGuests')
-      .addItem('Imposta Notifiche Extra', 'setExtraReminder'))
+      .addItem('Imposta Notifiche Extra', 'setExtraReminder')
+      .addItem('Configura Bot Telegram', 'setTelegramBot')
+      .addItem('Prova Notifica Telegram', 'telegramTest'))
     .addSeparator()
     .addItem('Verifica Aggiornamenti', 'checkUpdatesManual')
     .addItem('Novità', 'checkWhatsNew')
@@ -285,6 +283,7 @@ function setupTrigger() {
   setFrequency();
   setGuests();
   setExtraReminder();
+  setTelegramBot();
   getOrCreateCalendar();
   SpreadsheetApp.getUi().alert('✅ Configurazione completata.');
 }
@@ -312,6 +311,9 @@ function syncGmailToSheetAndCalendar(customQuery) {
   var cal = getOrCreateCalendar();
 
   var addedCount = 0;
+  var addedRows = [];
+  var updatedRows = [];
+  var isAuto = !(typeof customQuery === "string" && customQuery);
   var allMsgs = [];
   threads.forEach(thread => { thread.getMessages().forEach(m => allMsgs.push(m)); });
   allMsgs.sort((a, b) => a.getDate().getTime() - b.getDate().getTime());
@@ -391,6 +393,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
         var targetRange = sheet.getRange(rowIndex, 1, 1, rowData.length);
         sheet.getRange(rowIndex, 7, 1, 3).setNumberFormat("@");
         targetRange.setValues([rowData]);
+        updatedRows.push(rowData);
         
       } else if (!subject.includes("VARIAZIONE") && !subject.includes("SPOSTAMENTO") && !subject.includes("AUTORIZZAZIONE")) {
         // Senza data, ora e squadre non e' una designazione: meglio nessuna riga che una
@@ -411,6 +414,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
         // iniziale (es. 01018 delle serie nazionali) diventano numeri e lo perdono.
         sheet.getRange(newRowIndex, 7, 1, 3).setNumberFormat("@");
         sheet.getRange(newRowIndex, 1, 1, rowDataNew.length).setValues([rowDataNew]);
+        addedRows.push(rowDataNew);
         addedCount++;
       }
       msg.markRead();
@@ -420,6 +424,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
   SpreadsheetApp.flush();
   sortSheetByDateTime_();
   const movedCount = createCalendarEvents();
+  if (isAuto) { try { telegramNotifySync_(addedRows, updatedRows); } catch (e) {} }
   try { checkUpdatesAutomated(); } catch (e) {}
   return { added: addedCount, moved: movedCount };
 }
@@ -1178,6 +1183,255 @@ function callGeminiAI(html, key) {
     return JSON.parse(JSON.parse(res.getContentText()).candidates[0].content.parts[0].text);
   } catch (e) { return null; }
 }
+
+// ===================== BOT TELEGRAM (opzionale) =====================
+
+/**
+ * Chiamata all'API del bot. Senza token configurato non fa nulla: il bot e' opzionale.
+ */
+function telegramApi_(method, payload) {
+  var token = PropertiesService.getScriptProperties().getProperty('TELEGRAM_BOT_TOKEN');
+  if (!token) return null;
+  var options = { muteHttpExceptions: true };
+  if (payload) {
+    options.method = "post";
+    options.contentType = "application/json";
+    options.payload = JSON.stringify(payload);
+  }
+  try {
+    var resp = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/" + method, options);
+    var json = JSON.parse(resp.getContentText() || "{}");
+    return json.ok ? json.result : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function escapeTelegram_(v) {
+  return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Invia al solo utente abbinato. Torna true se il messaggio e' partito.
+ */
+function sendTelegram_(text) {
+  var chatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+  if (!chatId || !text) return false;
+  var res = telegramApi_("sendMessage", {
+    chat_id: chatId,
+    text: text,
+    parse_mode: "HTML",
+    disable_web_page_preview: true
+  });
+  return !!res;
+}
+
+/** Una gara come la vede Telegram: stessi dati dell'evento in calendario. */
+function telegramGaraText_(row) {
+  var d = parseDateCell(row[0]);
+  var t = parseTimeCell(row[1]);
+  var quando = (d ? pad2_(d.getDate()) + "/" + pad2_(d.getMonth() + 1) + "/" + d.getFullYear() : String(row[0] || "")) +
+               (t ? " ore " + pad2_(t.hh) + ":" + pad2_(t.mm) : "");
+  var lines = ["<b>" + escapeTelegram_(row[3]) + " - " + escapeTelegram_(row[4]) + "</b>", escapeTelegram_(quando)];
+  if (row[5]) lines.push(escapeTelegram_(row[5]));
+  if (row[11]) lines.push("Ruolo: " + escapeTelegram_(row[11]));
+  if (row[2]) lines.push("📍 " + escapeTelegram_(row[2]));
+  if (row[7] && row[7] !== "-") lines.push("Cod. attivazione: " + escapeTelegram_(row[7]));
+  if (row[8] && row[8] !== "-") lines.push("Cod. firma: " + escapeTelegram_(row[8]));
+  return lines.join("\n");
+}
+
+/** Messaggio dopo una sincronizzazione automatica che ha prodotto qualcosa. */
+function telegramNotifySync_(addedRows, updatedRows) {
+  if (!PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID')) return;
+  var blocchi = [];
+  if (addedRows && addedRows.length > 0) {
+    blocchi.push("<b>🆕 Nuove designazioni (" + addedRows.length + ")</b>");
+    addedRows.forEach(function(r) { blocchi.push(telegramGaraText_(r)); });
+  }
+  if (updatedRows && updatedRows.length > 0) {
+    blocchi.push("<b>🔄 Gare aggiornate (" + updatedRows.length + ")</b>");
+    updatedRows.forEach(function(r) { blocchi.push(telegramGaraText_(r)); });
+  }
+  if (blocchi.length > 0) sendTelegram_(blocchi.join("\n\n"));
+}
+
+function telegramReminderLabel_(instant, start) {
+  var g0 = new Date(instant.getFullYear(), instant.getMonth(), instant.getDate());
+  var g1 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  var giorni = Math.round((g1.getTime() - g0.getTime()) / 86400000);
+  if (giorni <= 0) return "🏐 Oggi";
+  if (giorni === 1) return "⏰ Domani";
+  return "⏰ Tra " + giorni + " giorni";
+}
+
+/**
+ * I promemoria che cadono nella finestra (windowStart, now]. Usa gli stessi minuti di
+ * buildReminderOverrides_, quindi Telegram e Calendario restano allineati per costruzione.
+ */
+function telegramDueReminders_(data, windowStart, now, extraReminder) {
+  var due = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row[6]) continue;
+    var dOnly = parseDateCell(row[0]);
+    var time = parseTimeCell(row[1]);
+    if (!dOnly || !time) continue;
+    var start = new Date(dOnly.getFullYear(), dOnly.getMonth(), dOnly.getDate(), time.hh, time.mm);
+    if (start.getTime() < now.getTime()) continue;
+    buildReminderOverrides_(start, dOnly, extraReminder).forEach(function(o) {
+      var instant = new Date(start.getTime() - o.minutes * 60000);
+      if (instant.getTime() > windowStart.getTime() && instant.getTime() <= now.getTime()) {
+        due.push({ row: row, start: start, instant: instant });
+      }
+    });
+  }
+  return due;
+}
+
+/**
+ * Trigger ogni 15 minuti: rispedisce su Telegram i promemoria del calendario appena scaduti.
+ * ponytail: tick a finestra invece di un trigger per promemoria, perche' Apps Script ne
+ * consente al massimo 20 per progetto. Precisione +/- 15 minuti, abbastanza per un avviso.
+ */
+function telegramReminderTick() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('TELEGRAM_CHAT_ID')) return;
+
+  var now = new Date();
+  var last = parseInt(props.getProperty('TELEGRAM_LAST_TICK') || "0", 10);
+  // Alla prima esecuzione guarda indietro 15 minuti; dopo un fermo prolungato massimo 2 ore,
+  // cosi' non arriva una raffica di promemoria vecchi.
+  var floor = now.getTime() - 7200000;
+  var windowStart = new Date(Math.max(last || (now.getTime() - 900000), floor));
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Arbitro") || ss.getSheets()[0];
+  var due = telegramDueReminders_(sheet.getDataRange().getValues(), windowStart, now,
+                                  props.getProperty('EXTRA_REMINDER_MINUTES'));
+
+  if (due.length > 0) {
+    var blocchi = due.map(function(d) {
+      return telegramReminderLabel_(d.instant, d.start) + "\n" + telegramGaraText_(d.row);
+    });
+    sendTelegram_(blocchi.join("\n\n"));
+  }
+  props.setProperty('TELEGRAM_LAST_TICK', String(now.getTime()));
+}
+
+function ensureTelegramTrigger_() {
+  var attivo = !!PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+  var triggers = ScriptApp.getProjectTriggers();
+  var presente = triggers.some(function(t) { return t.getHandlerFunction() === 'telegramReminderTick'; });
+  if (attivo && !presente) {
+    ScriptApp.newTrigger('telegramReminderTick').timeBased().everyMinutes(15).create();
+  } else if (!attivo && presente) {
+    triggers.forEach(function(t) {
+      if (t.getHandlerFunction() === 'telegramReminderTick') ScriptApp.deleteTrigger(t);
+    });
+  }
+}
+
+/** Configurazione: token, generazione della key e abbinamento con /start. */
+function setTelegramBot() {
+  var ui = SpreadsheetApp.getUi();
+  var props = PropertiesService.getScriptProperties();
+  var stato = props.getProperty('TELEGRAM_CHAT_ID') ? "Bot abbinato ✅" :
+              (props.getProperty('TELEGRAM_BOT_TOKEN') ? "Token presente, abbinamento da completare" : "Non configurato");
+
+  var res = ui.prompt('Bot Telegram (opzionale)',
+    'Stato: ' + stato + '\n\n' +
+    'Serve un bot tuo, si crea in un minuto:\n' +
+    '1) Su Telegram apri la chat con @BotFather\n' +
+    '2) Scrivi /newbot\n' +
+    '3) Dai un nome al bot (es. AutoCalendar Rossi)\n' +
+    '4) Scegli uno username che finisca per "bot" (es. autocalendar_rossi_bot)\n' +
+    '5) BotFather risponde con il token: copialo e incollalo qui sotto\n\n' +
+    'Incolla il token (lascia vuoto e premi OK per disattivare le notifiche Telegram):',
+    ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() != ui.Button.OK) return;
+
+  var token = (res.getResponseText() || "").trim();
+  if (!token) {
+    props.deleteProperty('TELEGRAM_BOT_TOKEN');
+    props.deleteProperty('TELEGRAM_CHAT_ID');
+    props.deleteProperty('TELEGRAM_PAIR_KEY');
+    ensureTelegramTrigger_();
+    ui.alert('Notifiche Telegram disattivate.');
+    return;
+  }
+
+  props.setProperty('TELEGRAM_BOT_TOKEN', token);
+  var me = telegramApi_("getMe");
+  if (!me || !me.username) {
+    props.deleteProperty('TELEGRAM_BOT_TOKEN');
+    ui.alert('Token non valido',
+      'Telegram non ha riconosciuto il token.\n\nControlla di aver copiato tutta la riga che ti ha dato @BotFather ' +
+      '(è lunga, nella forma 1234567890:AA...). Se l\'hai perso, su @BotFather scrivi /token e scegli il tuo bot.',
+      ui.ButtonSet.OK);
+    return;
+  }
+
+  var key = "AC-" + Utilities.getUuid().replace(/-/g, "").substring(0, 6).toUpperCase();
+  props.setProperty('TELEGRAM_PAIR_KEY', key);
+
+  var conferma = ui.alert('Abbinamento',
+    'Bot riconosciuto: @' + me.username + '\n\n1) Apri la chat con @' + me.username +
+    '\n2) Scrivi /start\n3) Incolla in chat questa key:\n\n' + key +
+    '\n\nFatto questo premi OK per completare l\'abbinamento.',
+    ui.ButtonSet.OK_CANCEL);
+  if (conferma != ui.Button.OK) return;
+
+  if (telegramPair_()) {
+    sendTelegram_("✅ <b>AutoCalendar abbinato</b>\nDa ora ricevi qui le nuove designazioni e i promemoria delle gare.");
+    ensureTelegramTrigger_();
+    ui.alert('✅ Abbinamento completato', 'Ti ho inviato un messaggio di conferma su Telegram.', ui.ButtonSet.OK);
+  } else {
+    ui.alert('Key non trovata',
+      'Non ho ancora visto la key nella chat del bot. Controlla di aver scritto /start e incollato:\n\n' + key +
+      '\n\nPoi riapri "Configura Bot Telegram" e reincolla lo stesso token.', ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Cerca la key nei messaggi ricevuti dal bot e memorizza la chat da notificare.
+ * ponytail: getUpdates viene chiamato SENZA offset, cosi' i messaggi restano in coda e
+ * l'abbinamento si puo' ripetere quante volte serve; Telegram tiene gli ultimi 100.
+ */
+function telegramPair_() {
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty('TELEGRAM_PAIR_KEY');
+  if (!key) return false;
+  var needle = key.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+
+  var updates = telegramApi_("getUpdates", { limit: 100, timeout: 0, allowed_updates: ["message"] });
+  if (!updates || updates.length === 0) return false;
+
+  for (var i = updates.length - 1; i >= 0; i--) {
+    var msg = updates[i].message;
+    if (!msg || !msg.text || !msg.chat) continue;
+    var testo = String(msg.text).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    if (testo.indexOf(needle) !== -1) {
+      props.setProperty('TELEGRAM_CHAT_ID', String(msg.chat.id));
+      props.deleteProperty('TELEGRAM_PAIR_KEY');
+      return true;
+    }
+  }
+  return false;
+}
+
+function telegramTest() {
+  var ui = SpreadsheetApp.getUi();
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('TELEGRAM_CHAT_ID')) {
+    ui.alert('Bot non abbinato', 'Configura prima il bot da "Configura Bot Telegram".', ui.ButtonSet.OK);
+    return;
+  }
+  var ok = sendTelegram_("🔔 <b>Prova notifica</b>\nAutoCalendar sta parlando con la chat giusta.");
+  ui.alert(ok ? '✅ Messaggio inviato su Telegram.' : '❌ Invio fallito. Controlla il token e rifai l\'abbinamento.');
+}
+
+// ===================== fine blocco Telegram =====================
 
 function checkUpdatesAutomated() {
   const props = PropertiesService.getScriptProperties();
