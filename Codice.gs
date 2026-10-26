@@ -1,7 +1,7 @@
 const CALENDAR_NAME = "Partite - AC";
 const MAJOR_VERSION = 0;
 const MINOR_VERSION = 8;
-const PATCH_VERSION = 0;
+const PATCH_VERSION = 1;
 const CURRENT_VERSION = `${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}`;
 const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-and-FipavOnline";
 
@@ -9,8 +9,7 @@ const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-and-F
 const MAIL_FILTER = [
   'from:tiebreaktech.com',
   'from:federvolley.it',
-  'subject:Designazione',
-  'subject:"Gara n."',
+  'subject:"Designazione gara"',
   'subject:"VARIAZIONE GARA"',
   'subject:"SPOSTAMENTO GARA"',
   'subject:"modifiche alla gara"'
@@ -21,10 +20,12 @@ const WHATS_NEW_TEXT = `
     <li><b>Sincronizzazione automatica riparata:</b> il trigger temporizzato ora legge davvero le email. Prima la ricerca Gmail riceveva l'oggetto evento del trigger invece della query e non trovava nulla: funzionava solo la sincronizzazione manuale.</li>
     <li><b>Due nuovi formati:</b> designazioni dei <b>Comitati Territoriali FIPAV</b> (gestionale SOL arbitri) e designazioni <b>nazionali del CED FIPAV</b> (serie A/B).</li>
     <li><b>Ruoli non arbitrali:</b> <i>Osservatore</i>, <i>Delegato</i>, <i>VideoCheck</i>, <i>Segnapunti</i>... vanno in calendario con il ruolo accanto alla categoria, senza scriverti come arbitro della gara.</li>
-    <li><b>Mail inoltrate:</b> una designazione girata da un collega viene letta correttamente. In più, sulle mail TBT inoltrate non viene più preso l'orario di invio della mail al posto di quello della gara.</li>
+    <li><b>Nuova colonna L "Ruolo":</b> il ruolo che hai in quella gara (1° arbitro, 2° arbitro, osservatore, delegato, VideoCheck...) ha una colonna sua e compare nell'evento del calendario. L'intestazione viene aggiunta da sola alla prima sincronizzazione.</li>
+    <li><b>Mail inoltrate ignorate:</b> la designazione di un collega girata per posta non entra più nel foglio. Ci finiscono solo le mail arrivate direttamente dal sistema federale.</li>
+    <li><b>Niente righe spazzatura:</b> se da una mail non si ricavano data, ora e squadre, la riga non viene scritta e la mail resta da leggere (prima potevano comparire righe con dentro pezzi di CSS).</li>
     <li><b>Numeri gara con lo zero iniziale</b> (es. 01018 delle serie nazionali) non vengono più troncati nel foglio.</li>
     <li><b>Variazioni TBT:</b> data e ora delle mail di modifica gara vengono riconosciute di nuovo.</li>
-    <li><b>Indirizzi più puliti:</b> apostrofi, accenti e i link di Google Maps che Gmail infila nel testo non finiscono più nel campo Luogo.</li>
+    <li><b>Indirizzi più puliti:</b> apostrofi, accenti e link non finiscono più nel campo Luogo. Sulle mail TBT non viene più preso l'orario di invio al posto di quello della gara.</li>
     <li><b>Gemini:</b> aggiornato al modello 2.5 Flash (le API key nuove non supportano più 1.5 Flash).</li>
   </ul>`;
 
@@ -73,6 +74,31 @@ function normalizeText_(s) {
 
 function pad2_(v) {
   return String(v).trim().length === 1 ? "0" + String(v).trim() : String(v).trim();
+}
+
+/**
+ * Il ruolo che TU hai in quella gara (colonna L). Le mail dei comitati e del CED lo
+ * dichiarano; quelle che elencano solo gli arbitri lo ricavano dal nome configurato.
+ */
+/**
+ * Le mail inoltrate non vengono elaborate: nel foglio devono finire solo le TUE
+ * designazioni, arrivate direttamente dal sistema federale alla tua casella.
+ * La designazione di un collega girata per posta non e' tua.
+ */
+function isInoltrata_(subject, body) {
+  if (/^\s*(fwd|fw|inoltr\w*|i)\s*:/i.test(String(subject || ""))) return true;
+  return /-{3,}\s*Forwarded message|Begin forwarded message|messaggio inoltrato/i.test(String(body || ""));
+}
+
+function ruoloDesignato_(dataGara) {
+  if (dataGara.ruolo) return normalizeText_(dataGara.ruolo);
+  var myName = (PropertiesService.getScriptProperties().getProperty('USER_FULL_NAME') || "").trim().toLowerCase();
+  if (!myName) return "";
+  var a1 = String(dataGara.arb1 || "").trim().toLowerCase();
+  var a2 = String(dataGara.arb2 || "").trim().toLowerCase();
+  if (a1 && (a1.indexOf(myName) !== -1 || myName.indexOf(a1) !== -1)) return "1° Arbitro";
+  if (a2 && (a2.indexOf(myName) !== -1 || myName.indexOf(a2) !== -1)) return "2° Arbitro";
+  return "";
 }
 
 function capitalizeName_(name) {
@@ -281,6 +307,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
   var threads = GmailApp.search(query);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("Arbitro") || ss.getSheets()[0];
+  if (!sheet.getRange(1, 12).getValue()) sheet.getRange(1, 12).setValue("Ruolo");
   var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   var cal = getOrCreateCalendar();
 
@@ -293,6 +320,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
     var htmlBody = msg.getBody();
     var from = (msg.getFrom() || "").toLowerCase();
     var subject = (msg.getSubject() || "").toUpperCase();
+    if (isInoltrata_(msg.getSubject(), htmlBody)) return;
     var isRegionale = from.includes("tiebreaktech") || htmlBody.includes("TieBreak");
 
     var dataGara = null;
@@ -356,7 +384,8 @@ function syncGmailToSheetAndCalendar(customQuery) {
           finalCodA,
           finalCodF,
           capitalizeName_(dataGara.arb1 || oldRow[9]),
-          capitalizeName_(dataGara.arb2 || oldRow[10])
+          capitalizeName_(dataGara.arb2 || oldRow[10]),
+          ruoloDesignato_(dataGara) || oldRow[11] || ""
         ];
         
         var targetRange = sheet.getRange(rowIndex, 1, 1, rowData.length);
@@ -364,6 +393,9 @@ function syncGmailToSheetAndCalendar(customQuery) {
         targetRange.setValues([rowData]);
         
       } else if (!subject.includes("VARIAZIONE") && !subject.includes("SPOSTAMENTO") && !subject.includes("AUTORIZZAZIONE")) {
+        // Senza data, ora e squadre non e' una designazione: meglio nessuna riga che una
+        // riga di spazzatura (e la mail resta da leggere, cosi' la si puo' controllare).
+        if (!dataGara.data || !dataGara.ora || !dataGara.squadraCasa) return;
         var rowDataNew = [
           dataGara.data, dataGara.ora, dataGara.luogo,
           dataGara.squadraCasa, dataGara.squadraOspite,
@@ -371,7 +403,8 @@ function syncGmailToSheetAndCalendar(customQuery) {
           isRegionale ? "-" : (dataGara.codA || ""),
           isRegionale ? "-" : (dataGara.codF || ""),
           capitalizeName_(dataGara.arb1 || ""),
-          capitalizeName_(dataGara.arb2 || "")
+          capitalizeName_(dataGara.arb2 || ""),
+          ruoloDesignato_(dataGara)
         ];
         var newRowIndex = sheet.getLastRow() + 1;
         // Formato testo prima della scrittura: altrimenti i numeri gara con lo zero
@@ -474,6 +507,7 @@ function createCalendarEvents() {
     var searchTag = "N. Gara: " + garaIdRaw;
 
     var descLines = [searchTag, "Categoria: " + row[5]];
+    if (row[11] && String(row[11]).trim() !== "") descLines.push("Ruolo: " + row[11]);
     var arb1 = String(row[9]).trim(), arb2 = String(row[10]).trim();
     var myName = (PropertiesService.getScriptProperties().getProperty('USER_FULL_NAME') || "").toLowerCase();
     var amI1 = myName !== "" && (arb1.toLowerCase().includes(myName) || myName.includes(arb1.toLowerCase()));
@@ -806,14 +840,9 @@ function parseRegionaleStandard(html) {
     res.arb1 = mA1 ? normalizeText_(mA1[1]) : "";
     res.arb2 = mA2 ? normalizeText_(mA2[1]) : "";
 
-    // "Ruolo: Delegato" (o osservatore, segnapunti...): ruolo non arbitrale -> in categoria.
+    // "Ruolo: Delegato" (o 1° arbitro, osservatore, segnapunti...) -> colonna L.
     var mRuolo = text.match(/^Ruolo:\s*(.+)$/im);
-    if (mRuolo) {
-      var ruolo = normalizeText_(mRuolo[1]);
-      if (ruolo && !/arbitro/i.test(ruolo)) {
-        res.categoria = res.categoria ? res.categoria + " (" + ruolo + ")" : ruolo;
-      }
-    }
+    if (mRuolo) res.ruolo = normalizeText_(mRuolo[1]);
     return res;
   } catch (e) { return null; }
 }
@@ -892,16 +921,10 @@ function parseComitatoFipav(html) {
     if (cand.indexOf("@") === -1 && /^[A-Za-zÀ-ÿ'\s.]{4,60}$/.test(cand)) nome = cand;
   }
 
-  if (/^1\D{0,12}?arbitro$/i.test(ruolo)) {
-    if (nome) res.arb1 = nome;
-  } else if (/^2\D{0,12}?arbitro$/i.test(ruolo)) {
-    if (nome) res.arb2 = nome;
-  } else if (ruolo) {
-    // Osservatore, segnapunti, giudice di linea...: il ruolo va in categoria e le
-    // colonne arbitri restano vuote, perche' la mail non dice chi sono gli arbitri.
-    res.ruolo = ruolo;
-    res.categoria = res.categoria ? res.categoria + " (" + ruolo + ")" : ruolo;
-  }
+  // Il ruolo va in colonna L. Le colonne arbitri restano vuote: questa mail dice solo
+  // il TUO ruolo, non chi sono gli altri ufficiali (nome del destinatario incluso in
+  // "nome", usato solo per capire di chi parla la mail).
+  if (ruolo) res.ruolo = ruolo;
 
   return res;
 }
@@ -991,8 +1014,10 @@ function parseFipavNazionale(html) {
     var line = normalizeText_(lines[r]);
     var mArb = line.match(arbRe);
     if (mArb) {
-      if (mArb[1] === "1") res.arb1 = normalizeText_(mArb[2]);
-      else res.arb2 = normalizeText_(mArb[2]);
+      var nomeArb = normalizeText_(mArb[2]);
+      if (mArb[1] === "1") res.arb1 = nomeArb;
+      else res.arb2 = nomeArb;
+      if (ioNome && nomeArb.toUpperCase() === ioNome.toUpperCase()) mioRuolo = mArb[1] + "° Arbitro";
       continue;
     }
     var mAltro = line.match(altriRe);
@@ -1001,8 +1026,7 @@ function parseFipavNazionale(html) {
     }
   }
 
-  // Ruolo non arbitrale (VideoCheck, segnapunti...): va in categoria, come per i comitati.
-  if (mioRuolo) res.categoria = res.categoria ? res.categoria + " (" + mioRuolo + ")" : mioRuolo;
+  if (mioRuolo) res.ruolo = mioRuolo;
 
   return res;
 }
@@ -1088,6 +1112,9 @@ function cleanEmail(html, keepColumns) {
     .replace(/=\r?\n/g, '');
   Object.keys(QP_CHARS_).forEach(function(k) { s = s.split(k).join(QP_CHARS_[k]); });
   s = s
+    // Via blocchi non testuali col loro contenuto: altrimenti il CSS finisce nel corpo
+    // e "margin-bottom" diventa una riga con " - " dentro, cioe' una finta riga squadre.
+    .replace(/<(style|script|head|title)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
     .replace(/<[^>]+>/g, '');
