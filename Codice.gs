@@ -1,18 +1,21 @@
 const CALENDAR_NAME = "Partite - AC";
 const MAJOR_VERSION = 0;
 const MINOR_VERSION = 8;
-const PATCH_VERSION = 3;
+const PATCH_VERSION = 4;
 const CURRENT_VERSION = `${MAJOR_VERSION}.${MINOR_VERSION}.${PATCH_VERSION}`;
 const githubUrl = "https://github.com/matteocheccacci/AutoCalendar-for-TBT-FipavOnline-SOL-and-CED-Federvolley";
 
 // Filtro Gmail condiviso da sincronizzazione automatica e manuale.
+// L'ultima riga cattura le designazioni inoltrate, che hanno un mittente qualsiasi
+// e i dati federali nel corpo.
 const MAIL_FILTER = [
   'from:tiebreaktech.com',
   'from:federvolley.it',
   'subject:"Designazione gara"',
   'subject:"VARIAZIONE GARA"',
   'subject:"SPOSTAMENTO GARA"',
-  'subject:"modifiche alla gara"'
+  'subject:"modifiche alla gara"',
+  '(("Forwarded message" OR "messaggio inoltrato") (tiebreaktech OR federvolley OR "Gara numero"))'
 ].join(" OR ");
 
 const WHATS_NEW_TEXT = `
@@ -29,6 +32,12 @@ const WHATS_NEW_TEXT = `
   <ul>
     <li><b>Nome repository aggiornato:</b> il progetto su GitHub ha un nuovo nome; i link e il controllo aggiornamenti puntano al nuovo indirizzo.</li>
     <li><b>Stringa copyright aggiornata:</b> corrette le informazioni di copyright nella finestra <i>Informazioni su AutoCalendar</i>.</li>
+  </ul>
+  <p><b>Versione 0.8.4</b></p>
+  <ul>
+    <li><b>Bug fix:</b> l'inoltro delle email ora è di nuovo funzionante.</li>
+    <li><b>Aggiornamenti anche su Telegram:</b> l'avviso di nuova versione disponibile arriva anche sul bot, oltre che per email.</li>
+    <li><b>Recap anche dalla sincronizzazione manuale:</b> il bot ti manda l'elenco delle designazioni trovate anche quando avvii la sincronizzazione a mano.</li>
   </ul>`;
 
 const updtMailBody = `
@@ -79,28 +88,33 @@ function pad2_(v) {
 }
 
 /**
- * Il ruolo che TU hai in quella gara (colonna L). Le mail dei comitati e del CED lo
- * dichiarano; quelle che elencano solo gli arbitri lo ricavano dal nome configurato.
- */
-/**
- * Le mail inoltrate non vengono elaborate: nel foglio devono finire solo le TUE
- * designazioni, arrivate direttamente dal sistema federale alla tua casella.
- * La designazione di un collega girata per posta non e' tua.
+ * Riconosce le mail inoltrate. Vengono analizzate come tutte le altre, ma entrano
+ * nel foglio solo se il nome configurato compare tra gli arbitri (vedi ruoloDaNome_):
+ * la designazione di un collega girata per posta non e' tua.
  */
 function isInoltrata_(subject, body) {
   if (/^\s*(fwd|fw|inoltr\w*|i)\s*:/i.test(String(subject || ""))) return true;
   return /-{3,}\s*Forwarded message|Begin forwarded message|messaggio inoltrato/i.test(String(body || ""));
 }
 
+/** "1° Arbitro" / "2° Arbitro" se il nome configurato e' tra gli arbitri, altrimenti "". */
+function ruoloDaNome_(g) {
+  var me = (PropertiesService.getScriptProperties().getProperty('USER_FULL_NAME') || "").trim().toLowerCase();
+  if (!me || !g) return "";
+  var a1 = String(g.arb1 || "").trim().toLowerCase();
+  var a2 = String(g.arb2 || "").trim().toLowerCase();
+  if (a1 && (a1.indexOf(me) !== -1 || me.indexOf(a1) !== -1)) return "1° Arbitro";
+  if (a2 && (a2.indexOf(me) !== -1 || me.indexOf(a2) !== -1)) return "2° Arbitro";
+  return "";
+}
+
+/**
+ * Il ruolo che TU hai in quella gara (colonna L). Le mail dei comitati e del CED lo
+ * dichiarano; quelle che elencano solo gli arbitri lo ricavano dal nome configurato.
+ */
 function ruoloDesignato_(dataGara) {
   if (dataGara.ruolo) return normalizeText_(dataGara.ruolo);
-  var myName = (PropertiesService.getScriptProperties().getProperty('USER_FULL_NAME') || "").trim().toLowerCase();
-  if (!myName) return "";
-  var a1 = String(dataGara.arb1 || "").trim().toLowerCase();
-  var a2 = String(dataGara.arb2 || "").trim().toLowerCase();
-  if (a1 && (a1.indexOf(myName) !== -1 || myName.indexOf(a1) !== -1)) return "1° Arbitro";
-  if (a2 && (a2.indexOf(myName) !== -1 || myName.indexOf(a2) !== -1)) return "2° Arbitro";
-  return "";
+  return ruoloDaNome_(dataGara);
 }
 
 function capitalizeName_(name) {
@@ -321,7 +335,6 @@ function syncGmailToSheetAndCalendar(customQuery) {
   var addedCount = 0;
   var addedRows = [];
   var updatedRows = [];
-  var isAuto = !(typeof customQuery === "string" && customQuery);
   var allMsgs = [];
   threads.forEach(thread => { thread.getMessages().forEach(m => allMsgs.push(m)); });
   allMsgs.sort((a, b) => a.getDate().getTime() - b.getDate().getTime());
@@ -330,7 +343,7 @@ function syncGmailToSheetAndCalendar(customQuery) {
     var htmlBody = msg.getBody();
     var from = (msg.getFrom() || "").toLowerCase();
     var subject = (msg.getSubject() || "").toUpperCase();
-    if (isInoltrata_(msg.getSubject(), htmlBody)) return;
+    var inoltrata = isInoltrata_(msg.getSubject(), htmlBody);
     var isRegionale = from.includes("tiebreaktech") || htmlBody.includes("TieBreak");
 
     var dataGara = null;
@@ -358,6 +371,13 @@ function syncGmailToSheetAndCalendar(customQuery) {
           if (aiData.arb2) dataGara.arb2 = aiData.arb2;
         }
       }
+    }
+
+    // Mail inoltrata: entra solo se il nome configurato e' tra gli arbitri.
+    if (inoltrata) {
+      var mioRuolo = ruoloDaNome_(dataGara);
+      if (!mioRuolo) return;      // non sei tra gli arbitri: scartata
+      dataGara.ruolo = mioRuolo;  // il tuo ruolo, non quello di chi ha inoltrato
     }
 
     if (dataGara && dataGara.numeroGara) {
@@ -432,7 +452,8 @@ function syncGmailToSheetAndCalendar(customQuery) {
   SpreadsheetApp.flush();
   sortSheetByDateTime_();
   const movedCount = createCalendarEvents();
-  if (isAuto) { try { telegramNotifySync_(addedRows, updatedRows); } catch (e) {} }
+  // Recap su Telegram sia dalla sincronizzazione automatica sia da quella manuale.
+  try { telegramNotifySync_(addedRows, updatedRows); } catch (e) {}
   try { checkUpdatesAutomated(); } catch (e) {}
   return { added: addedCount, moved: movedCount };
 }
@@ -1452,6 +1473,12 @@ function checkUpdatesAutomated() {
       if (myEmail) {
         GmailApp.sendEmail(myEmail, "🚀 Aggiornamento AutoCalendar", "", { htmlBody: updtMailBody });
       }
+      try {
+        sendTelegram_("🚀 <b>Aggiornamento AutoCalendar disponibile</b>\n" +
+          "Nuova versione: " + escapeTelegram_(updateInfo.version) + "\n" +
+          "Versione attuale: " + escapeTelegram_(CURRENT_VERSION) + "\n\n" +
+          "Installala copiando il codice da GitHub:\n" + escapeTelegram_(githubUrl));
+      } catch (e) {}
     }
     count = 0;
   }
